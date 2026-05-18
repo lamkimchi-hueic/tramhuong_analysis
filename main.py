@@ -19,9 +19,6 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import numpy as np
-from sklearn.linear_model import LinearRegression
-
 from database import query
 
 load_dotenv()
@@ -319,17 +316,34 @@ def forecast():
             "confidence": None,
         }
 
-    X = np.array([safe_float(r["month_epoch"]) for r in rows]).reshape(-1, 1)
-    y = np.array([safe_float(r["revenue"]) for r in rows])
+    x = [safe_float(r["month_epoch"]) for r in rows]
+    y = [safe_float(r["revenue"]) for r in rows]
+    n = len(rows)
 
-    model = LinearRegression()
-    model.fit(X, y)
-    r2 = model.score(X, y)
+    # Tính Hồi quy Tuyến tính (y = m * x + c) bằng Python thuần
+    sum_x = sum(x)
+    sum_y = sum(y)
+    sum_xx = sum(val * val for val in x)
+    sum_xy = sum(val_x * val_y for val_x, val_y in zip(x, y))
+
+    denominator = (n * sum_xx - sum_x * sum_x)
+    if denominator == 0:
+        m = 0.0
+        c = sum_y / n
+    else:
+        m = (n * sum_xy - sum_x * sum_y) / denominator
+        c = (sum_y - m * sum_x) / n
+
+    # Tính độ chính xác R2 (R-squared)
+    y_mean = sum_y / n
+    ss_tot = sum((val_y - y_mean) ** 2 for val_y in y)
+    ss_res = sum((val_y - (m * val_x + c)) ** 2 for val_x, val_y in zip(x, y))
+    r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 1.0
 
     # Dự báo tháng tới
     last_epoch = safe_float(rows[-1]["month_epoch"])
     next_epoch = last_epoch + 30 * 24 * 3600  # +30 ngày
-    predicted = max(0, float(model.predict([[next_epoch]])[0]))
+    predicted = max(0.0, m * next_epoch + c)
 
     # Label tháng tới
     last_month_dt = datetime.fromtimestamp(last_epoch)
@@ -344,7 +358,7 @@ def forecast():
         "forecast_month": next_label,
         "forecast_revenue": round(predicted),
         "confidence_r2": round(r2, 3),
-        "model": "Linear Regression",
+        "model": "Linear Regression (Pure Python)",
     }
 
 
